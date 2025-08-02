@@ -1,2 +1,2 @@
 # completionist
-Command-line tool for Synthetic Text Data Generation
+Command-line tools for Synthetic Datasets Generation
