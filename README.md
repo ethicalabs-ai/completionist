@@ -41,4 +41,4 @@ uv run python3 -m completionist \
 
 This tool's functionality will be expanded in the near future to support different tasks. 
 
-The plan to add subcommands to handle various scenarios, such as generating datasets for DPO training, performing dataset cleanup, or translating text.
+The plan is to add subcommands to handle various scenarios, such as generating datasets for DPO training, performing dataset cleanup, or translating text.
