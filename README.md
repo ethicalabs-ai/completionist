@@ -18,11 +18,11 @@ uv run python3 -m completionist \
 
 This command will:
 
-- Use the Context column from the input dataset as the prompt.
-- Save the LLM's response to the Response column in the output.
+- Use the `Context` column from the input dataset as the prompt.
+- Save the LLM's response to the `Response` column in the output.
 - Use `hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest` for generation.
 - Defines a system prompt to prepend to each user prompt.
-- Store the resulting dataset in generated_dataset.parquet locally.
+- Store the resulting dataset in `generated_dataset.parquet` locally.
 
 Hugging Face inference endpoints are supported as well, but please remember to use `tgi` as model name:
 
