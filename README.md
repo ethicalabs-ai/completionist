@@ -10,7 +10,6 @@ To generate a new dataset (in this example, from `mrs83/kurtis_mental_health`) a
 uv run python3 -m completionist \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
-  --completion-output-field Response \
   --model-name hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest \
   --system-prompt "You are a compassionate and empathetic mental-health assistant named Kurtis, trained by ethicalabs.ai. You provide thoughtful and supportive responses to user queries" \
   --output-file generated_dataset.parquet
@@ -19,7 +18,6 @@ uv run python3 -m completionist \
 This command will:
 
 - Use the `Context` column from the input dataset as the prompt.
-- Save the LLM's response to the `Response` column in the output.
 - Use `hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest` for generation.
 - Defines a system prompt to prepend to each user prompt.
 - Store the resulting dataset in `generated_dataset.parquet` locally.
@@ -31,7 +29,6 @@ uv run python3 -m completionist \
   --api-url https://xxxxxxxxxxxxxxx.us-east-1.aws.endpoints.huggingface.cloud/v1/chat/completions \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
-  --completion-output-field Response \
   --model-name tgi \
   --system-prompt "You are a compassionate and empathetic mental-health assistant named Kurtis, trained by ethicalabs.ai. You provide thoughtful and supportive responses to user queries" \
   --output-file generated_dataset.parquet
