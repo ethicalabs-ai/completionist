@@ -43,7 +43,7 @@ def get_completion(
     }
 
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=600)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
         response_json = response.json()
         completion_text = (

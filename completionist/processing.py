@@ -1,5 +1,6 @@
 import concurrent.futures
 import re
+from tqdm import tqdm
 from .llm_api import get_completion
 
 
@@ -57,8 +58,11 @@ def process_samples_with_executor(
     """
     completions = []
     futures = []
+
+    # Using a ThreadPoolExecutor for concurrent API calls
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         try:
+            # Submit all tasks to the executor
             for sample in dataset_to_process:
                 future = executor.submit(
                     generate_completion_for_sample,
@@ -74,21 +78,25 @@ def process_samples_with_executor(
                 )
                 futures.append(future)
 
-            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            for future in tqdm(
+                concurrent.futures.as_completed(futures),
+                total=len(futures),
+                initial=resume_idx,
+                desc="Generating completions",
+            ):
                 result = future.result()
                 if result:
                     completions.append(result)
-                current_idx = resume_idx + i + 1
-                print(
-                    f"Completed {current_idx}/{total_samples_in_dataset} samples.",
-                    end="\r",
-                )
-            print("\nAll completions processed.")
+
         except KeyboardInterrupt:
+            # When interrupted, cancel pending futures and wait for active ones
             print(
                 "\nProcess interrupted. Attempting to shut down workers and save progress..."
             )
             executor.shutdown(wait=False, cancel_futures=True)
             print("Executor shutdown initiated.")
+
         finally:
+            # The 'with' statement for the executor automatically calls shutdown
+            # at the end of the block, which ensures all resources are cleaned up.
             return completions
