@@ -2,6 +2,22 @@
 
 Command-line tool for generating new syntetic text datasets, by iterating over an existing Hugging Face dataset and using a LLM to create completions.
 
+## 🛠️ Requirements
+
+To run this project, you'll need:
+
+- Python >=3.11 or a container engine (Podman, Docker..)
+- A local Open-AI compatible API endpoint (Ollama, LM Studio, vLLM...)
+- Or an Hugging Face inference endpoints. 
+
+Default Ollama API endpoint is set as default.
+
+Remember to pull your model from Ollama (or LM Studio) before running Completionist.
+
+```
+ollama pull hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest
+```
+
 ## Basic Usage
 
 To generate a new dataset (in this example, from `mrs83/kurtis_mental_health`) and save the output to a local Parquet file, use the following command.
