@@ -6,7 +6,7 @@ Command-line tool for generating new syntetic text datasets, by iterating over a
 
 To run this project, you'll need:
 
-- Python >=3.11 or a container engine (Podman, Docker..)
+- Python >=3.11 or a Container Engine (Podman, Docker..)
 - A local Open-AI compatible API endpoint (Ollama, LM Studio, vLLM...)
 - Or an Hugging Face inference endpoints. 
 
@@ -49,6 +49,21 @@ uv run python3 -m completionist \
   --system-prompt "You are a compassionate and empathetic mental-health assistant named Kurtis, trained by ethicalabs.ai. You provide thoughtful and supportive responses to user queries" \
   --output-file generated_dataset.parquet
 ```
+
+## Running with a Container Engine (Podman)
+
+```
+mkdir -p datasets
+podman run -it -v  ./datasets:/app/datasets ethicalabs/completionist:latest \
+  --api-url http://host.containers.internal:11434/v1/chat/completions \
+  --dataset-name mrs83/kurtis_mental_health \
+  --prompt-input-field Context \
+  --model-name hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest \
+  --system-prompt "You are a compassionate and empathetic mental-health assistant named Kurtis, trained by ethicalabs.ai. You provide thoughtful and supportive responses to user queries" \
+  --output-file datasets/generated_dataset.parquet
+```
+
+In this example, `--api-url` is set to the Ollama HTTP server, listening on the host machine (`host.containers.internal:11434`).
 
 ## Future Development
 
