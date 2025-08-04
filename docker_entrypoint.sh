@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -e
 
 uv_command="/bin/uv"
