@@ -18,4 +18,4 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
-ENTRYPOINT ["/docker_entrypoint.sh"]
+ENTRYPOINT ["/app/docker_entrypoint.sh"]
