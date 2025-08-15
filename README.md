@@ -23,7 +23,7 @@ ollama pull hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest
 To generate a new dataset (in this example, from `mrs83/kurtis_mental_health`) and save the output to a local Parquet file, use the following command.
 
 ```
-uv run python3 -m completionist \
+uv run python3 -m completionist complete \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
   --model-name hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest \
@@ -38,10 +38,10 @@ This command will:
 - Defines a system prompt to prepend to each user prompt.
 - Store the resulting dataset in `generated_dataset.parquet` locally.
 
-Hugging Face inference endpoints are supported as well, but please remember to use `tgi` as model name:
+Hugging Face inference endpoints are supported as well, but please remember to use `tgi` as model name for TGI endpoints:
 
 ```
-uv run python3 -m completionist \
+uv run python3 -m completionist complete \
   --api-url https://xxxxxxxxxxxxxxx.us-east-1.aws.endpoints.huggingface.cloud/v1/chat/completions \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
@@ -54,7 +54,7 @@ uv run python3 -m completionist \
 
 ```
 mkdir -p datasets
-podman run -it -v  ./datasets:/app/datasets ethicalabs/completionist:latest \
+podman run -it -v ./datasets:/app/datasets ethicalabs/completionist:latest complete \
   --api-url http://host.containers.internal:11434/v1/chat/completions \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
