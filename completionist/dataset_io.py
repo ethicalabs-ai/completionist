@@ -39,7 +39,7 @@ def load_and_prepare_dataset(
 
     completions = []
     resume_idx = 0
-    if os.path.exists(output_file):
+    if os.path.exists(output_file) and not shuffle:
         print(f"Resuming from existing file: {output_file}")
         try:
             existing_dataset = Dataset.from_parquet(output_file)
