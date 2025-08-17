@@ -8,10 +8,11 @@ def get_completion(
     system_prompt: str = None,
     hf_api_token: str = None,
     max_tokens: int = 2048,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
 ) -> str:
     """
     Sends a prompt to an LLM API endpoint to get a text completion.
-
     Args:
         prompt: The text prompt to send.
         model_name: The name of the model to use for generation.
@@ -19,6 +20,8 @@ def get_completion(
         system_prompt: An optional system prompt to prepend to the user prompt.
         hf_api_token: An optional Hugging Face API token for authentication.
         max_tokens: The maximum number of tokens to generate.
+        temperature: The sampling temperature.
+        top_p: The nucleus sampling probability.
 
     Returns:
         The generated text completion.
@@ -41,6 +44,11 @@ def get_completion(
         "max_tokens": max_tokens,
         "stream": False,
     }
+
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if top_p is not None:
+        payload["top_p"] = top_p
 
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=120)

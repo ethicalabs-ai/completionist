@@ -1,9 +1,41 @@
 import sys
 import click
+import re
 from huggingface_hub import get_token
 
 from completionist.processing import process_samples_with_executor
 from completionist.dataset_io import load_and_prepare_dataset, save_and_push_dataset
+from completionist.llm_api import get_completion
+
+
+def complete_task_handler(sample, llm_config):
+    """
+    Helper function to generate a completion for a single sample for the 'complete' command.
+    """
+    prompt = sample[llm_config["prompt_input_field"]]
+    completion = get_completion(
+        prompt=prompt,
+        model_name=llm_config["model_name"],
+        api_url=llm_config["api_url"],
+        system_prompt=llm_config["system_prompt"],
+        hf_api_token=llm_config["hf_api_token"],
+        max_tokens=llm_config["max_tokens"],
+        temperature=llm_config["temperature"],
+        top_p=llm_config["top_p"],
+    )
+
+    if completion:
+        reasoning_match = re.search(r"<think>(.*?)</think>", completion, re.DOTALL)
+        reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
+        cleaned_completion = re.sub(
+            r"<think>.*?</think>", "", completion, flags=re.DOTALL
+        ).strip()
+        return {
+            llm_config["prompt_output_field"]: prompt,
+            llm_config["completion_output_field"]: cleaned_completion,
+            "reasoning": reasoning,
+        }
+    return None
 
 
 @click.command()
@@ -74,6 +106,15 @@ from completionist.dataset_io import load_and_prepare_dataset, save_and_push_dat
     default="completion",
     help="The name of the field to store the generated completion in the output dataset. Defaults to 'completion'.",
 )
+@click.option(
+    "--temperature",
+    type=float,
+    default=0.7,
+    help="Sampling temperature for generation.",
+)
+@click.option(
+    "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
+)
 def complete_cmd(
     dataset_name,
     output_file,
@@ -89,6 +130,8 @@ def complete_cmd(
     prompt_input_field,
     prompt_output_field,
     completion_output_field,
+    temperature,
+    top_p,
 ):
     """
     Generate text completions for a dataset using an LLM.
@@ -99,34 +142,42 @@ def complete_cmd(
         print("Error: --hf-repo-id is required when --push-to-hub is used.")
         sys.exit(1)
 
-    dataset_to_process, resume_idx, total_samples_in_dataset = load_and_prepare_dataset(
-        dataset_name,
-        output_file,
-        prompt_input_field,
-        shuffle,
-        limit,
-        completion_output_field,
+    dataset_to_process, resume_idx, total_samples_in_dataset, existing_completions = (
+        load_and_prepare_dataset(
+            dataset_name,
+            output_file,
+            prompt_input_field,
+            shuffle,
+            limit,
+        )
     )
+
+    llm_config = {
+        "model_name": model_name,
+        "api_url": api_url,
+        "system_prompt": system_prompt,
+        "hf_api_token": hf_api_token,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "prompt_input_field": prompt_input_field,
+        "prompt_output_field": prompt_output_field,
+        "completion_output_field": completion_output_field,
+    }
 
     print(
         f"Starting completion generation for {len(dataset_to_process)} samples (out of {total_samples_in_dataset}) with {workers} workers..."
     )
 
-    completions = process_samples_with_executor(
+    new_completions = process_samples_with_executor(
         dataset_to_process=dataset_to_process,
         workers=workers,
         resume_idx=resume_idx,
-        total_samples_in_dataset=total_samples_in_dataset,
-        prompt_input_field=prompt_input_field,
-        prompt_output_field=prompt_output_field,
-        completion_output_field=completion_output_field,
-        model_name=model_name,
-        api_url=api_url,
-        system_prompt=system_prompt,
-        hf_api_token=hf_api_token,
-        max_tokens=max_tokens,
+        task_handler=complete_task_handler,
+        llm_config=llm_config,
     )
 
+    all_completions = existing_completions + new_completions
     save_and_push_dataset(
-        completions, output_file, push_to_hub, hf_repo_id, hf_api_token
+        all_completions, output_file, push_to_hub, hf_repo_id, hf_api_token
     )
