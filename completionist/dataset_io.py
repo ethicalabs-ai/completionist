@@ -10,23 +10,34 @@ def load_and_prepare_dataset(
     prompt_input_field,
     shuffle,
     limit,
-    completion_output_field,
+    split="train",
 ):
     """
     Loads, prepares, and handles resume logic for the dataset.
     Returns the dataset to process, the resume index, and the total dataset size.
     """
     try:
-        dataset = load_dataset(dataset_name)
-        if (
-            "train" not in dataset
-            or prompt_input_field not in dataset["train"].features
+        if os.path.isfile(dataset_name):
+            if dataset_name.endswith(".jsonl"):
+                dataset = load_dataset("json", data_files=dataset_name)
+            elif dataset_name.endswith(".txt"):
+                dataset = load_dataset("text", data_files=dataset_name)
+            else:
+                print(
+                    f"Error: Unsupported file format for '{dataset_name}'. Please use .jsonl or .txt."
+                )
+                sys.exit(1)
+        else:
+            dataset = load_dataset(dataset_name)
+
+        if split not in dataset or (
+            prompt_input_field and prompt_input_field not in dataset[split].features
         ):
             print(
-                f"Error: The dataset must have a 'train' split and a '{prompt_input_field}' feature."
+                f"Error: The dataset must have a '{split}' split and a '{prompt_input_field}' feature."
             )
             sys.exit(1)
-        dataset = dataset["train"]
+        dataset = dataset[split]
     except Exception as e:
         print(f"Error loading dataset: {e}")
         sys.exit(1)
@@ -54,7 +65,7 @@ def load_and_prepare_dataset(
     dataset_to_process = dataset.select(range(resume_idx, len(dataset)))
     total_samples_in_dataset = len(dataset)
 
-    return dataset_to_process, resume_idx, total_samples_in_dataset
+    return dataset_to_process, resume_idx, total_samples_in_dataset, completions
 
 
 def save_and_push_dataset(

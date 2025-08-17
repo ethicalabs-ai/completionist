@@ -1,57 +1,13 @@
 import concurrent.futures
-import re
 from tqdm import tqdm
-from .llm_api import get_completion
-
-
-def generate_completion_for_sample(
-    sample,
-    prompt_input_field,
-    prompt_output_field,
-    completion_output_field,
-    model_name,
-    api_url,
-    system_prompt,
-    hf_api_token,
-    max_tokens,
-):
-    """
-    Helper function to generate a completion for a single sample.
-    Used for concurrent processing.
-    """
-    prompt = sample[prompt_input_field]
-    completion = get_completion(
-        prompt, model_name, api_url, system_prompt, hf_api_token, max_tokens
-    )
-
-    if completion:
-        reasoning_match = re.search(r"<think>(.*?)</think>", completion, re.DOTALL)
-        reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
-        cleaned_completion = re.sub(
-            r"<think>.*?</think>", "", completion, flags=re.DOTALL
-        ).strip()
-        return {
-            prompt_output_field: prompt,
-            completion_output_field: cleaned_completion,
-            "reasoning": reasoning,
-        }
-
-    return None
 
 
 def process_samples_with_executor(
     dataset_to_process,
     workers,
     resume_idx,
-    total_samples_in_dataset,
-    prompt_input_field,
-    prompt_output_field,
-    completion_output_field,
-    model_name,
-    api_url,
-    system_prompt,
-    hf_api_token,
-    max_tokens,
+    task_handler,
+    llm_config,
 ):
     """
     Manages the concurrent execution of tasks using a ThreadPoolExecutor.
@@ -65,16 +21,9 @@ def process_samples_with_executor(
             # Submit all tasks to the executor
             for sample in dataset_to_process:
                 future = executor.submit(
-                    generate_completion_for_sample,
+                    task_handler,
                     sample,
-                    prompt_input_field,
-                    prompt_output_field,
-                    completion_output_field,
-                    model_name,
-                    api_url,
-                    system_prompt,
-                    hf_api_token,
-                    max_tokens,
+                    llm_config,
                 )
                 futures.append(future)
 
