@@ -174,7 +174,7 @@ def complete_cmd(
     if push_to_hub and not hf_repo_id:
         handle_error("Error: --hf-repo-id is required when --push-to-hub is used.")
 
-    final_system_prompt = (
+    system_prompt_content = (
         read_file_content(system_prompt_file) if system_prompt_file else system_prompt
     )
     prompt_template = read_file_content(prompt_template_file)
@@ -192,7 +192,7 @@ def complete_cmd(
     llm_config = {
         "model_name": model_name,
         "api_url": api_url,
-        "system_prompt": final_system_prompt,
+        "system_prompt": system_prompt_content,
         "prompt_template": prompt_template,
         "hf_api_token": hf_api_token,
         "max_tokens": max_tokens,
