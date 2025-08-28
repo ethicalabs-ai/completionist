@@ -1,4 +1,3 @@
-import sys
 import click
 import re
 from huggingface_hub import get_token
