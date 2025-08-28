@@ -64,17 +64,12 @@ def build_task_handler(_, llm_config: dict):
 
 @click.command("build")
 @click.option(
-    "--schema-file",
-    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    "--schema",
+    type=str,
     default="completionist.default_schema.DefaultSchema",
     required=True,
-    help="Path to a Python file containing the Pydantic schema for the output.",
+    help="Python module path to the Pydantic schema for the output.",
     show_default=True,
-)
-@click.option(
-    "--schema-class-name",
-    required=True,
-    help="The name of the Pydantic BaseModel class within the schema file.",
 )
 @click.option(
     "--topics-file",
@@ -139,8 +134,7 @@ def build_task_handler(_, llm_config: dict):
     "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
 )
 def build_cmd(
-    schema_file,
-    schema_class_name,
+    schema,
     topics_file,
     system_prompt_file,
     user_prompt_template_file,
@@ -162,7 +156,7 @@ def build_cmd(
         sys.exit(1)
 
     # Load all external assets
-    pydantic_schema = load_schema_from_import_path(schema_file)
+    pydantic_schema = load_schema_from_import_path(schema)
     topics = [
         line for line in read_file_content(topics_file).splitlines() if line.strip()
     ]
