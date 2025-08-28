@@ -1,4 +1,4 @@
-Generate a JSON object with the following structure. Invent a user query related to the following task: '{task_description}'.
+Generate a JSON object with the following structure. Invent a user query related to the following task: '{topic}'.
 The 'prompt' field should contain the user's query.
 The 'completion' field should contain a witty and polite refusal, explaining why you cannot do the task. Avoid sounding like a helpful assistant. Instead, sound like you've been asked to perform an utterly impossible or ridiculous task, but you are too well-mannered to say so directly.
 

@@ -1,15 +1,14 @@
 import sys
 import click
-import random
-import importlib.util
+import importlib
 
-import outlines
-from openai import OpenAI as OpenAIClient
 from pydantic import BaseModel
+from huggingface_hub import get_token
 
 from completionist.processing import process_samples_with_executor
 from completionist.dataset_io import save_and_push_dataset
 from completionist.utils import read_file_content
+from completionist.llm_api import get_completion
 
 
 def load_schema_from_import_path(import_path: str) -> BaseModel:
@@ -29,46 +28,42 @@ def load_schema_from_import_path(import_path: str) -> BaseModel:
         sys.exit(1)
 
 
-def build_task_handler(_, llm_config: dict):
+def build_task_handler(topic: str, llm_config: dict):
     """
-    Task handler for generating a single structured data sample using outlines.
-    The first argument is ignored as we don't use an input dataset.
+    Task handler for generating a single structured data sample for a given topic.
     """
-    generator = llm_config["generator"]
-    pydantic_schema = llm_config["pydantic_schema"]
-    system_prompt = llm_config["system_prompt"]
     user_prompt_template = llm_config["user_prompt_template"]
-    topics = llm_config["topics"]
-    generation_config = llm_config["generation_config"]
 
     try:
-        topic = random.choice(topics)
         user_prompt = user_prompt_template.format(topic=topic)
 
-        prompt = outlines.Chat(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
+        # Call the centralized get_completion function with the schema
+        result = get_completion(
+            prompt=user_prompt,
+            model_name=llm_config["model_name"],
+            api_url=llm_config["api_url"],
+            system_prompt=llm_config["system_prompt"],
+            pydantic_schema=llm_config["pydantic_schema"],
+            temperature=llm_config["generation_config"]["temperature"],
+            top_p=llm_config["generation_config"]["top_p"],
         )
 
-        # Generate the structured output, letting outlines handle schema enforcement
-        result = generator(prompt, schema=pydantic_schema, **generation_config)
-
-        return result.model_dump()
+        if result:
+            return result.model_dump()
+        return None
 
     except Exception as e:
-        print(f"\nWarning: Failed to generate a valid sample. Reason: {e}")
+        print(
+            f"\nWarning: Failed to generate a valid sample for topic '{topic}'. Reason: {e}"
+        )
         return None
 
 
 @click.command("build")
 @click.option(
     "--schema",
-    type=str,
-    default="completionist.default_schema.DefaultSchema",
-    required=True,
-    help="Python module path to the Pydantic schema for the output.",
+    default="completionist.commands.default_schema.DefaultSchema",
+    help="Full Python import path to the Pydantic schema class to use for generation.",
     show_default=True,
 )
 @click.option(
@@ -93,7 +88,7 @@ def build_task_handler(_, llm_config: dict):
     "--num-samples",
     type=int,
     required=True,
-    help="The total number of samples to generate.",
+    help="The total number of samples to generate for each topic.",
 )
 @click.option(
     "--output-file",
@@ -151,6 +146,8 @@ def build_cmd(
     """
     Generate a structured dataset from a list of topics using a Pydantic schema.
     """
+    hf_api_token = get_token()
+
     if push_to_hub and not hf_repo_id:
         print("Error: --hf-repo-id is required when --push-to-hub is used.")
         sys.exit(1)
@@ -169,36 +166,35 @@ def build_cmd(
         )
         sys.exit(1)
     if "{topic}" not in user_prompt_template:
-        print("Error: The user prompt template must contain a '{topic}' placeholder.")
-        sys.exit(1)
-
-    # Initialize the outlines generator
-    try:
-        client = OpenAIClient(base_url=api_url, api_key="ollama")  # API key is required
-        generator = outlines.models.openai(model=model_name, client=client)
-    except Exception as e:
-        print(f"Error initializing outlines model for endpoint '{api_url}': {e}")
+        print(
+            "Error: The user prompt template must contain a '{topic}' placeholder.\n"
+            f"File checked: {user_prompt_template_file}\n"
+            f"Content starts with: '{user_prompt_template[:200]}...'"
+        )
         sys.exit(1)
 
     # Prepare configuration for the task handler
     llm_config = {
-        "generator": generator,
+        "model_name": model_name,
+        "api_url": api_url,
         "pydantic_schema": pydantic_schema,
         "system_prompt": system_prompt,
         "user_prompt_template": user_prompt_template,
-        "topics": topics,
         "generation_config": {"temperature": temperature, "top_p": top_p},
     }
 
-    # Use a dummy iterable to run the executor N times
-    dummy_input = range(num_samples)
+    # Create a list of all tasks to run (num_samples for each topic)
+    tasks_to_run = []
+    for topic in topics:
+        tasks_to_run.extend([topic] * num_samples)
 
+    total_tasks = len(tasks_to_run)
     print(
-        f"Starting structured data generation for {num_samples} samples with {workers} workers..."
+        f"Starting structured data generation for {total_tasks} samples ({num_samples} per topic) with {workers} workers..."
     )
 
     generated_samples = process_samples_with_executor(
-        dataset_to_process=dummy_input,
+        dataset_to_process=tasks_to_run,
         workers=workers,
         resume_idx=0,  # No resume functionality for build command
         task_handler=build_task_handler,
@@ -210,5 +206,5 @@ def build_cmd(
         output_file=output_file,
         push_to_hub=push_to_hub,
         hf_repo_id=hf_repo_id,
-        hf_api_token=None,  # Not needed for saving, push uses env var
+        hf_api_token=hf_api_token,
     )
