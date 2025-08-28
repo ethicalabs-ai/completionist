@@ -6,13 +6,28 @@ from huggingface_hub import get_token
 from completionist.processing import process_samples_with_executor
 from completionist.dataset_io import load_and_prepare_dataset, save_and_push_dataset
 from completionist.llm_api import get_completion
+from completionist.utils import read_file_content, handle_error
 
 
 def complete_task_handler(sample, llm_config):
     """
     Helper function to generate a completion for a single sample for the 'complete' command.
     """
-    prompt = sample[llm_config["prompt_input_field"]]
+    prompt = ""
+    prompt_template = llm_config.get("prompt_template")
+
+    if prompt_template:
+        try:
+            prompt = prompt_template.format(**sample)
+        except KeyError as e:
+            print(
+                f"\nError: The placeholder {{{e.args[0]}}} in your prompt template was not found "
+                f"as a column in the dataset. Available columns: {list(sample.keys())}"
+            )
+            return None
+    else:
+        prompt = sample[llm_config["prompt_input_field"]]
+
     completion = get_completion(
         prompt=prompt,
         model_name=llm_config["model_name"],
@@ -58,7 +73,19 @@ def complete_task_handler(sample, llm_config):
 @click.option(
     "--system-prompt",
     default=None,
-    help="(Optional) A system prompt to prepend to each user prompt.",
+    help="(Optional) A system prompt to prepend to each user prompt. Cannot be used with --system-prompt-file.",
+)
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    default=None,
+    help="(Optional) Path to a file containing the system prompt. Cannot be used with --system-prompt.",
+)
+@click.option(
+    "--prompt-template-file",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    default=None,
+    help="(Optional) Path to a text file containing the prompt template. If provided, it formats the prompt using dataset columns as placeholders (e.g. {column_name}).",
 )
 @click.option(
     "--max-tokens",
@@ -94,7 +121,7 @@ def complete_task_handler(sample, llm_config):
 @click.option(
     "--prompt-input-field",
     required=True,
-    help="The name of the field in the input dataset to use as the prompt.",
+    help="The name of the field in the input dataset to use as the prompt. Also used for validation.",
 )
 @click.option(
     "--prompt-output-field",
@@ -121,6 +148,8 @@ def complete_cmd(
     model_name,
     api_url,
     system_prompt,
+    system_prompt_file,
+    prompt_template_file,
     max_tokens,
     limit,
     shuffle,
@@ -136,26 +165,36 @@ def complete_cmd(
     """
     Generate text completions for a dataset using an LLM.
     """
+    if system_prompt and system_prompt_file:
+        raise click.UsageError(
+            "Error: --system-prompt and --system-prompt-file are mutually exclusive."
+        )
+
     hf_api_token = get_token()
 
     if push_to_hub and not hf_repo_id:
-        print("Error: --hf-repo-id is required when --push-to-hub is used.")
-        sys.exit(1)
+        handle_error("Error: --hf-repo-id is required when --push-to-hub is used.")
+
+    final_system_prompt = (
+        read_file_content(system_prompt_file) if system_prompt_file else system_prompt
+    )
+    prompt_template = read_file_content(prompt_template_file)
 
     dataset_to_process, resume_idx, total_samples_in_dataset, existing_completions = (
         load_and_prepare_dataset(
-            dataset_name,
-            output_file,
-            prompt_input_field,
-            shuffle,
-            limit,
+            dataset_name=dataset_name,
+            output_file=output_file,
+            prompt_input_field=prompt_input_field,
+            shuffle=shuffle,
+            limit=limit,
         )
     )
 
     llm_config = {
         "model_name": model_name,
         "api_url": api_url,
-        "system_prompt": system_prompt,
+        "system_prompt": final_system_prompt,
+        "prompt_template": prompt_template,
         "hf_api_token": hf_api_token,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -176,8 +215,8 @@ def complete_cmd(
         task_handler=complete_task_handler,
         llm_config=llm_config,
     )
-
-    all_completions = existing_completions + new_completions
-    save_and_push_dataset(
-        all_completions, output_file, push_to_hub, hf_repo_id, hf_api_token
-    )
+    if len(new_completions) > 0:
+        all_completions = existing_completions + new_completions
+        save_and_push_dataset(
+            all_completions, output_file, push_to_hub, hf_repo_id, hf_api_token
+        )

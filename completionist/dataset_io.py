@@ -3,6 +3,8 @@ import sys
 from datasets import load_dataset, Dataset
 from huggingface_hub import HfApi
 
+from completionist.utils import handle_error
+
 
 def load_and_prepare_dataset(
     dataset_name,
@@ -23,24 +25,21 @@ def load_and_prepare_dataset(
             elif dataset_name.endswith(".txt"):
                 dataset = load_dataset("text", data_files=dataset_name)
             else:
-                print(
+                handle_error(
                     f"Error: Unsupported file format for '{dataset_name}'. Please use .jsonl or .txt."
                 )
-                sys.exit(1)
         else:
             dataset = load_dataset(dataset_name)
 
         if split not in dataset or (
             prompt_input_field and prompt_input_field not in dataset[split].features
         ):
-            print(
+            handle_error(
                 f"Error: The dataset must have a '{split}' split and a '{prompt_input_field}' feature."
             )
-            sys.exit(1)
         dataset = dataset[split]
     except Exception as e:
-        print(f"Error loading dataset: {e}")
-        sys.exit(1)
+        handle_error(f"Error loading dataset: {e}")
 
     if shuffle:
         dataset = dataset.shuffle(seed=42)
@@ -74,31 +73,29 @@ def save_and_push_dataset(
     """
     Saves the generated completions locally and pushes them to the Hugging Face Hub if requested.
     """
-    if completions:
-        new_dataset = Dataset.from_list(completions)
-        try:
-            new_dataset.to_parquet(output_file)
-            print(f"Generated dataset saved locally to {output_file}")
-        except Exception as e:
-            print(f"Error saving dataset locally: {e}")
+    new_dataset = Dataset.from_list(completions)
+    try:
+        new_dataset.to_parquet(output_file)
+        print(f"Generated dataset saved locally to {output_file}")
+    except Exception as e:
+        handle_error(f"Error saving dataset locally: {e}")
 
-        if push_to_hub:
-            print(f"Pushing dataset to Hugging Face Hub as '{hf_repo_id}'...")
+    if push_to_hub:
+        print(f"Pushing dataset to Hugging Face Hub as '{hf_repo_id}'...")
+        try:
+            api = HfApi(token=hf_api_token)
             try:
-                api = HfApi(token=hf_api_token)
-                try:
-                    api.whoami()
-                except Exception:
-                    print(
-                        "You must be logged in or have the HUGGING_FACE_HUB_TOKEN environment variable set to push a dataset."
-                    )
-                    print(
-                        "Please run `huggingface-cli login` or set the environment variable and try again."
-                    )
-                    sys.exit(1)
-                new_dataset.push_to_hub(hf_repo_id)
-                print("Successfully pushed dataset to the Hugging Face Hub!")
-            except Exception as e:
-                print(f"Error pushing dataset to the Hub: {e}")
-    else:
-        print("No completions were generated.")
+                api.whoami()
+            except Exception:
+                print(
+                    "You must be logged in or have the HUGGING_FACE_HUB_TOKEN environment variable set to push a dataset."
+                )
+                print(
+                    "Please run `huggingface-cli login` or set the environment variable and try again."
+                )
+                sys.exit(1)
+            new_dataset.push_to_hub(hf_repo_id)
+            print("Successfully pushed dataset to the Hugging Face Hub!")
+        except Exception as e:
+            handle_error(f"Error pushing dataset to the Hub: {e}")
+
