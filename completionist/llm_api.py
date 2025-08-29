@@ -1,4 +1,5 @@
 import json
+import traceback
 from typing import Optional, Union
 
 from pydantic import BaseModel
@@ -76,12 +77,14 @@ def get_completion(
         else:
             result = client.completions.create(
                 model=model_name,
-                prompt=prompt,
+                prompt=chat_prompt,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
             )
             return result.choices[0].text.strip()
-    except Exception as e:
-        print(f"Error during structured generation for prompt: '{prompt[:50]}...': {e}")
+    except Exception:
+        print(
+            f"Error during structured generation for prompt: '{chat_prompt[:50]}...': {traceback.format_exc()}"
+        )
         return None
