@@ -66,7 +66,7 @@ def complete_task_handler(sample, llm_config):
 )
 @click.option(
     "--api-url",
-    default="http://localhost:11434/v1/chat/completions",
+    default="http://localhost:11434/v1",
     help="(Optional) The API endpoint URL for the LLM. Defaults to Ollama's OpenAI-compatible endpoint.",
 )
 @click.option(

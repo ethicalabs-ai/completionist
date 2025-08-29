@@ -1,6 +1,7 @@
 import sys
 import click
 import importlib
+import traceback
 
 from pydantic import BaseModel
 from huggingface_hub import get_token
@@ -52,9 +53,9 @@ def build_task_handler(topic: str, llm_config: dict):
             return result.model_dump()
         return None
 
-    except Exception as e:
+    except Exception:
         print(
-            f"\nWarning: Failed to generate a valid sample for topic '{topic}'. Reason: {e}"
+            f"\nWarning: Failed to generate a valid sample for topic '{topic}'. Reason: {traceback.format_exc()}"
         )
         return None
 
