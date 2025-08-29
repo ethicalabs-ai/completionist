@@ -42,7 +42,7 @@ Hugging Face inference endpoints are supported as well, but please remember to u
 
 ```
 uv run python3 -m completionist complete \
-  --api-url https://xxxxxxxxxxxxxxx.us-east-1.aws.endpoints.huggingface.cloud/v1/chat/completions \
+  --api-url https://xxxxxxxxxxxxxxx.us-east-1.aws.endpoints.huggingface.cloud/v1 \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
   --model-name tgi \
@@ -55,7 +55,7 @@ uv run python3 -m completionist complete \
 ```
 mkdir -p datasets
 podman run -it -v ./datasets:/app/datasets ethicalabs/completionist:latest complete \
-  --api-url http://host.containers.internal:11434/v1/chat/completions \
+  --api-url http://host.containers.internal:11434/v1 \
   --dataset-name mrs83/kurtis_mental_health \
   --prompt-input-field Context \
   --model-name hf.co/ethicalabs/Kurtis-E1.1-Qwen3-4B-GGUF:latest \
@@ -65,8 +65,30 @@ podman run -it -v ./datasets:/app/datasets ethicalabs/completionist:latest compl
 
 In this example, `--api-url` is set to the Ollama HTTP server, listening on the host machine (`host.containers.internal:11434`).
 
+## Generating Structured Datasets with build
+
+The `build` command generates a new, structured dataset from scratch based on a dataset source. In the given example, it's a list of topics.
+
+It uses the outlines library to enforce a specific JSON schema (defined by a `Pydantic` model schema), making it ideal for creating high-quality, structured data for tasks like instruction tuning.
+
+The following example command uses a local LM Studio endpoint to generate a dataset with prompt, completion, and reasoning samples.
+
+It will generate `--num-samples` for each topic defined in the `--topics-file`.
+
+```
+uv run python3 -m completionist build \                              
+  --api-url http://localhost:1234/v1 \
+  --model-name Kurtis-E1.1-Qwen2.5-3B-Instruct-GGUF/Kurtis-E1.1-Qwen2.5-3B-Instruct.Q4_K_S.gguf \
+  --num-samples 10 \
+  --output-file build_output.jsonl \
+  --system-prompt-file docs/examples/computer-says-no/build/sft/system.txt \
+  --user-prompt-template-file docs/examples/computer-says-no/build/sft/prompt-reasoning.txt \
+  --topics-file docs/examples/computer-says-no/build/sft/tasks.txt \
+  --schema completionist.default_schema.SchemaWithReasoning
+```
+
 ## Future Development
 
 This tool's functionality will be expanded in the near future to support different tasks. 
 
-The plan is to add subcommands to handle various scenarios, such as generating datasets for DPO training, performing dataset cleanup, or translating text.
+The plan is to add subcommands to handle various scenarios, such as translating text and post-processing.
