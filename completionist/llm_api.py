@@ -59,13 +59,12 @@ def get_completion(
     try:
         # For outlines, the client needs the base URL, not the full endpoint
         client = OpenAIClient(base_url=api_url, api_key=hf_api_token or "dummy")
-        generator = outlines.models.openai.OpenAI(client=client, model_name=model_name)
-        chat_prompt = outlines.inputs.Chat(messages)
 
         if pydantic_schema:
             generator = outlines.models.openai.OpenAI(
                 client=client, model_name=model_name
             )
+            chat_prompt = outlines.inputs.Chat(messages)
             result = generator(
                 chat_prompt,
                 temperature=temperature,
@@ -77,7 +76,7 @@ def get_completion(
         else:
             result = client.completions.create(
                 model=model_name,
-                prompt=chat_prompt,
+                messages=messages,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
@@ -85,6 +84,6 @@ def get_completion(
             return result.choices[0].text.strip()
     except Exception:
         print(
-            f"Error during structured generation for prompt: '{chat_prompt[:50]}...': {traceback.format_exc()}"
+            f"Error during structured generation for prompt: '{prompt[:50]}...': {traceback.format_exc()}"
         )
         return None
