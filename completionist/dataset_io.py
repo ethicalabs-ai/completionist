@@ -74,8 +74,16 @@ def save_and_push_dataset(
     Saves the generated completions locally and pushes them to the Hugging Face Hub if requested.
     """
     new_dataset = Dataset.from_list(completions)
+    extension = os.path.splitext(output_file)[1]
     try:
-        new_dataset.to_parquet(output_file)
+        if extension == ".parquet":
+            new_dataset.to_parquet(output_file)
+        elif extension == ".jsonl":
+            new_dataset.to_json(output_file)
+        else:
+            raise ValueError(
+                f"{extension} is not supported: please use .parquet or .jsonl"
+            )
         print(f"Generated dataset saved locally to {output_file}")
     except Exception as e:
         handle_error(f"Error saving dataset locally: {e}")
