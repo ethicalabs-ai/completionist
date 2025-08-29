@@ -24,6 +24,7 @@ def get_completion(
     api_url: str,
     system_prompt: Optional[str] = None,
     hf_api_token: Optional[str] = None,
+    openai_api_token: Optional[str] = None,
     max_tokens: int = 2048,
     temperature: float = 0.7,
     top_p: float = 0.95,
@@ -56,9 +57,21 @@ def get_completion(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
+    api_token = openai_api_token
+    is_hf_url = (
+        "huggingface.cloud" in api_url or "api-inference.huggingface.co" in api_url
+    )
+    if is_hf_url:
+        if not hf_api_token:
+            raise TypeError(
+                "An hugging face token is required to perform this request."
+            )
+        else:
+            api_token = hf_api_token
+
     try:
         # For outlines, the client needs the base URL, not the full endpoint
-        client = OpenAIClient(base_url=api_url, api_key=hf_api_token or "dummy")
+        client = OpenAIClient(base_url=api_url, api_key=api_token or "dummy")
 
         if pydantic_schema:
             generator = outlines.models.openai.OpenAI(

@@ -1,3 +1,4 @@
+import os
 import sys
 import click
 import importlib
@@ -44,6 +45,8 @@ def build_task_handler(topic: str, llm_config: dict):
             model_name=llm_config["model_name"],
             api_url=llm_config["api_url"],
             system_prompt=llm_config["system_prompt"],
+            hf_api_token=llm_config["hf_api_token"],
+            openai_api_token=llm_config["openai_api_token"],
             pydantic_schema=llm_config["pydantic_schema"],
             temperature=llm_config["generation_config"]["temperature"],
             top_p=llm_config["generation_config"]["top_p"],
@@ -148,6 +151,7 @@ def build_cmd(
     Generate a structured dataset from a list of topics using a Pydantic schema.
     """
     hf_api_token = get_token()
+    openai_api_token = os.environ.get("OPENAI_API_TOKEN", None)
 
     if push_to_hub and not hf_repo_id:
         print("Error: --hf-repo-id is required when --push-to-hub is used.")
@@ -182,6 +186,8 @@ def build_cmd(
         "system_prompt": system_prompt,
         "user_prompt_template": user_prompt_template,
         "generation_config": {"temperature": temperature, "top_p": top_p},
+        "hf_api_token": hf_api_token,
+        "openai_api_token": openai_api_token,
     }
 
     # Create a list of all tasks to run (num_samples for each topic)

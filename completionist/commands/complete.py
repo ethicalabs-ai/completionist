@@ -1,3 +1,4 @@
+import os
 import click
 import re
 from huggingface_hub import get_token
@@ -32,7 +33,8 @@ def complete_task_handler(sample, llm_config):
         model_name=llm_config["model_name"],
         api_url=llm_config["api_url"],
         system_prompt=llm_config["system_prompt"],
-        hf_api_token=llm_config["hf_api_token"],
+        hf_api_token=llm_config["openai_api_token"],
+        openai_api_token=llm_config["hf_api_token"],
         max_tokens=llm_config["max_tokens"],
         temperature=llm_config["temperature"],
         top_p=llm_config["top_p"],
@@ -170,6 +172,7 @@ def complete_cmd(
         )
 
     hf_api_token = get_token()
+    openai_api_token = os.environ.get("OPENAI_API_TOKEN", None)
 
     if push_to_hub and not hf_repo_id:
         handle_error("Error: --hf-repo-id is required when --push-to-hub is used.")
@@ -195,6 +198,7 @@ def complete_cmd(
         "system_prompt": system_prompt_content,
         "prompt_template": prompt_template,
         "hf_api_token": hf_api_token,
+        "openai_api_token": openai_api_token,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "top_p": top_p,
