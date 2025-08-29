@@ -87,14 +87,14 @@ def get_completion(
             raw_json = process_json(result)
             return pydantic_schema(**raw_json)
         else:
-            result = client.completions.create(
+            result = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
             )
-            return result.choices[0].text.strip()
+            return result.choices[0].message.content
     except Exception:
         print(
             f"Error during structured generation for prompt: '{prompt[:50]}...': {traceback.format_exc()}"
