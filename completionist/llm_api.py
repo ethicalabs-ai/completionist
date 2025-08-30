@@ -5,6 +5,7 @@ from typing import Optional, Union
 from pydantic import BaseModel
 from openai import OpenAI as OpenAIClient
 import outlines
+import httpx
 
 
 def process_json(raw_response: str):
@@ -71,7 +72,13 @@ def get_completion(
 
     try:
         # For outlines, the client needs the base URL, not the full endpoint
-        client = OpenAIClient(base_url=api_url, api_key=api_token or "dummy")
+        client = OpenAIClient(
+            base_url=api_url,
+            api_key=api_token or "dummy",
+            http_client=httpx.Client(
+                limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
+            ),
+        )
 
         if pydantic_schema:
             generator = outlines.models.openai.OpenAI(
