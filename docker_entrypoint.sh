@@ -2,7 +2,7 @@
 
 set -e
 
-uv_command="/bin/uv"
+uv_command="uv"
 default_args=("run" "python3" "-m" "completionist")
 
 # Check if the first argument looks like a flag or if it's not a known command.
