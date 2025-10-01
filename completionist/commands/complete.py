@@ -1,12 +1,53 @@
 import os
-import click
 import re
-from huggingface_hub import get_token
+from dataclasses import asdict
 
-from completionist.processing import process_samples_with_executor
+import click
+import httpx
+from huggingface_hub import get_token
+from openai import OpenAI as OpenAIClient
+
+# Import the hallbayes toolkit
+from hallbayes.toolkit import OpenAIBackend, OpenAIItem, OpenAIPlanner
+
 from completionist.dataset_io import load_and_prepare_dataset, save_and_push_dataset
 from completionist.llm_api import get_completion
-from completionist.utils import read_file_content, handle_error
+from completionist.processing import process_samples_with_executor
+from completionist.utils import handle_error, read_file_content
+
+
+def run_hallucination_check(prompt, client, hallbayes_config):
+    """
+    Runs the hallucination check using the hallbayes toolkit.
+    """
+    backend = OpenAIBackend(model=hallbayes_config["model_name"], client=client)
+    planner = OpenAIPlanner(backend, temperature=0.3)
+
+    # Decide skeleton policy based on whether an evidence field is provided
+    if hallbayes_config["evidence_field"]:
+        item = OpenAIItem(
+            prompt=prompt,
+            n_samples=hallbayes_config["n_samples"],
+            m=hallbayes_config["m_skeletons"],
+            fields_to_erase=[hallbayes_config["evidence_field"]],
+            skeleton_policy="auto",  # auto will use evidence_erase if field is present
+        )
+    else:
+        # No evidence field, so run in closed-book mode
+        item = OpenAIItem(
+            prompt=prompt,
+            n_samples=hallbayes_config["n_samples"],
+            m=hallbayes_config["m_skeletons"],
+            skeleton_policy="closed_book",
+        )
+
+    metrics = planner.run(
+        [item],
+        h_star=hallbayes_config["h_star"],
+        isr_threshold=1.0,  # Standard ISR gate
+        margin_extra_bits=0.2,
+    )
+    return metrics[0] if metrics else None
 
 
 def complete_task_handler(sample, llm_config):
@@ -18,6 +59,18 @@ def complete_task_handler(sample, llm_config):
 
     if prompt_template:
         try:
+            # If evidence field is provided, ensure it's formatted correctly in the prompt
+            if llm_config.get("hallbayes_config", {}).get("evidence_field"):
+                evidence_field_name = llm_config["hallbayes_config"]["evidence_field"]
+                if (
+                    evidence_field_name in sample
+                    and f"{{{evidence_field_name}}}" in prompt_template
+                ):
+                    # Add the field name prefix for hallbayes to recognize it
+                    sample[evidence_field_name] = (
+                        f"{evidence_field_name}: {sample[evidence_field_name]}"
+                    )
+
             prompt = prompt_template.format(**sample)
         except KeyError as e:
             print(
@@ -27,6 +80,23 @@ def complete_task_handler(sample, llm_config):
             return None
     else:
         prompt = sample[llm_config["prompt_input_field"]]
+
+    # Hallucination Detection Step
+    hallucination_info = None
+    if llm_config.get("hallucination_detection"):
+        client = llm_config["client"]
+        hallbayes_config = llm_config["hallbayes_config"]
+        metrics = run_hallucination_check(prompt, client, hallbayes_config)
+
+        if metrics:
+            hallucination_info = asdict(metrics)
+            if not metrics.decision_answer:
+                # High risk of hallucination detected
+                if hallbayes_config["hallucination_action"] == "skip":
+                    print(
+                        f"\nSkipping sample due to high hallucination risk (ISR={metrics.isr:.2f})."
+                    )
+                    return None  # Skip the sample
 
     completion = get_completion(
         prompt=prompt,
@@ -46,11 +116,16 @@ def complete_task_handler(sample, llm_config):
         cleaned_completion = re.sub(
             r"<think>.*?</think>", "", completion, flags=re.DOTALL
         ).strip()
-        return {
+
+        output = {
             llm_config["prompt_output_field"]: prompt,
             llm_config["completion_output_field"]: cleaned_completion,
             "reasoning": reasoning,
         }
+        if hallucination_info:
+            output["hallucination_info"] = hallucination_info
+
+        return output
     return None
 
 
@@ -69,79 +144,78 @@ def complete_task_handler(sample, llm_config):
 @click.option(
     "--api-url",
     default="http://localhost:11434/v1",
-    help="(Optional) The API endpoint URL for the LLM. Defaults to Ollama's OpenAI-compatible endpoint.",
+    help="(Optional) The API endpoint URL for the LLM.",
 )
 @click.option(
     "--system-prompt",
     default=None,
-    help="(Optional) A system prompt to prepend to each user prompt. Cannot be used with --system-prompt-file.",
+    help="(Optional) A system prompt. Cannot be used with --system-prompt-file.",
 )
 @click.option(
     "--system-prompt-file",
     type=click.Path(exists=True, dir_okay=False, resolve_path=True),
     default=None,
-    help="(Optional) Path to a file containing the system prompt. Cannot be used with --system-prompt.",
+    help="(Optional) Path to a file containing the system prompt.",
 )
 @click.option(
     "--prompt-template-file",
     type=click.Path(exists=True, dir_okay=False, resolve_path=True),
     default=None,
-    help="(Optional) Path to a text file containing the prompt template. If provided, it formats the prompt using dataset columns as placeholders (e.g. {column_name}).",
+    help="(Optional) Path to a prompt template file (e.g. {column_name}).",
 )
-@click.option(
-    "--max-tokens",
-    type=int,
-    default=2048,
-    help="(Optional) The maximum number of tokens to generate per completion.",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="(Optional) Limit the number of samples to process.",
-)
-@click.option(
-    "--shuffle", is_flag=True, help="(Optional) Shuffle the dataset before processing."
-)
-@click.option(
-    "--push-to-hub",
-    is_flag=True,
-    help="(Optional) Push the generated dataset to the Hugging Face Hub.",
-)
-@click.option(
-    "--hf-repo-id",
-    default=None,
-    help="The Hugging Face repository ID to push the dataset to (e.g., 'your-user/your-dataset'). Required if --push_to_hub is used.",
-)
-@click.option(
-    "--workers",
-    type=int,
-    default=4,
-    help="(Optional) Number of concurrent requests to make to the API. Defaults to 4.",
-)
+@click.option("--max-tokens", type=int, default=2048)
+@click.option("--limit", type=int, default=None)
+@click.option("--shuffle", is_flag=True)
+@click.option("--push-to-hub", is_flag=True)
+@click.option("--hf-repo-id", default=None)
+@click.option("--workers", type=int, default=4)
 @click.option(
     "--prompt-input-field",
     required=True,
-    help="The name of the field in the input dataset to use as the prompt. Also used for validation.",
+    help="The field from the input dataset to use as the prompt.",
+)
+@click.option("--prompt-output-field", default="prompt")
+@click.option("--completion-output-field", default="completion")
+@click.option("--temperature", type=float, default=0.7)
+@click.option("--top-p", type=float, default=0.95)
+# --- New Hallucination Detection Options ---
+@click.option(
+    "--hallucination-detection",
+    is_flag=True,
+    help="Enable the hallucination detection layer before generation.",
 )
 @click.option(
-    "--prompt-output-field",
-    default="prompt",
-    help="The name of the field to store the original prompt in the output dataset. Defaults to 'prompt'.",
+    "--evidence-field",
+    default=None,
+    help="[Hallucination Detection] The dataset field containing evidence for the prompt (e.g., 'passage' for BoolQ). Enables evidence-based detection.",
 )
 @click.option(
-    "--completion-output-field",
-    default="completion",
-    help="The name of the field to store the generated completion in the output dataset. Defaults to 'completion'.",
+    "--hallucination-action",
+    type=click.Choice(["flag", "skip"]),
+    default="flag",
+    show_default=True,
+    help="[Hallucination Detection] Action to take if high risk is detected.",
 )
 @click.option(
-    "--temperature",
+    "--h-star",
     type=float,
-    default=0.7,
-    help="Sampling temperature for generation.",
+    default=0.05,
+    show_default=True,
+    help="[Hallucination Detection] Target max hallucination rate (e.g., 0.05 for 5%).",
 )
 @click.option(
-    "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
+    "--n-samples",
+    type=int,
+    default=7,
+    show_default=True,
+    help="[Hallucination Detection] Number of samples for polling the model.",
+)
+@click.option(
+    "--m-skeletons",
+    type=int,
+    default=6,
+    show_default=True,
+    help="[Hallucination Detection] Number of prompt skeletons to generate.",
 )
 def complete_cmd(
     dataset_name,
@@ -162,9 +236,16 @@ def complete_cmd(
     completion_output_field,
     temperature,
     top_p,
+    hallucination_detection,
+    evidence_field,
+    hallucination_action,
+    h_star,
+    n_samples,
+    m_skeletons,
 ):
     """
-    Generate text completions for a dataset using an LLM.
+    Generate text completions for a dataset using an LLM, with an optional
+    hallucination detection layer.
     """
     if system_prompt and system_prompt_file:
         raise click.UsageError(
@@ -192,6 +273,16 @@ def complete_cmd(
         )
     )
 
+    # Create a single, shared API client
+    api_token = hf_api_token if "huggingface.cloud" in api_url else openai_api_token
+    client = OpenAIClient(
+        base_url=api_url,
+        api_key=api_token or "dummy",
+        http_client=httpx.Client(
+            limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
+        ),
+    )
+
     llm_config = {
         "model_name": model_name,
         "api_url": api_url,
@@ -205,11 +296,25 @@ def complete_cmd(
         "prompt_input_field": prompt_input_field,
         "prompt_output_field": prompt_output_field,
         "completion_output_field": completion_output_field,
+        "client": client,  # Pass the shared client
+        "hallucination_detection": hallucination_detection,
+        "hallbayes_config": {
+            "model_name": model_name,
+            "evidence_field": evidence_field,
+            "hallucination_action": hallucination_action,
+            "h_star": h_star,
+            "n_samples": n_samples,
+            "m_skeletons": m_skeletons,
+        },
     }
 
     print(
         f"Starting completion generation for {len(dataset_to_process)} samples (out of {total_samples_in_dataset}) with {workers} workers..."
     )
+    if hallucination_detection:
+        print(
+            f"Hallucination detection is ENABLED (Action: {hallucination_action}, Target RoH: {h_star * 100:.1f}%)"
+        )
 
     new_completions = process_samples_with_executor(
         dataset_to_process=dataset_to_process,
