@@ -50,7 +50,7 @@ def _translate_with_cache(source_text, llm_config, cache):
         top_p=llm_config["top_p"],
         max_tokens=llm_config.get("max_tokens", 2048),
         reasoning_effort=llm_config.get("reasoning_effort"),
-        reasoning_format=llm_config.get("reasoning_format"),
+        reasoning=llm_config.get("reasoning"),
     )
 
     if completion and cache:
@@ -259,7 +259,7 @@ def translate_cmd(
         "top_p": top_p,
         "input_fields": list(input_fields),
         "reasoning_effort": reasoning_effort,
-        "reasoning_format": "none",
+        "reasoning": "off",
         "source_lang": source_lang,
         "target_lang": target_lang,
         "cache": cache,
