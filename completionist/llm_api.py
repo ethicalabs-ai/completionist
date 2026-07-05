@@ -1,22 +1,11 @@
-import json
 import traceback
-from typing import Optional, Union
+from typing import Optional, Union, Dict
 
 from pydantic import BaseModel
 from openai import OpenAI as OpenAIClient
-import outlines
+from outlines import OpenAI as OutlinesOpenAI
+from outlines import inputs as outlines_inputs
 import httpx
-
-
-def process_json(raw_response: str):
-    if raw_response.strip().startswith("```json"):
-        cleaned_response = (
-            raw_response.strip().removeprefix("```json").removesuffix("```")
-        )
-    else:
-        cleaned_response = raw_response
-
-    return json.loads(cleaned_response)
 
 
 def get_completion(
@@ -30,13 +19,14 @@ def get_completion(
     temperature: float = 0.7,
     top_p: float = 0.95,
     pydantic_schema: Optional[BaseModel] = None,
-) -> Union[str, BaseModel]:
+    reasoning_effort: Optional[str] = None,
+) -> Union[Dict[str, Optional[str]], BaseModel]:
     """
     Sends a prompt to an LLM API to get a completion.
 
     If a Pydantic schema is provided, it uses the 'outlines' library for
-    structured, schema-enforced generation. Otherwise, it performs a
-    standard text completion request.
+    structured, schema-enforced generation via the native generate() API.
+    Otherwise, it performs a standard text completion request.
 
     Args:
         prompt: The text prompt to send.
@@ -51,7 +41,7 @@ def get_completion(
 
     Returns:
         If a schema is provided, returns a Pydantic object.
-        Otherwise, returns the generated text as a string.
+        Otherwise, returns a dict with 'content' and 'reasoning_content' keys.
     """
     messages = []
     if system_prompt:
@@ -81,27 +71,37 @@ def get_completion(
         )
 
         if pydantic_schema:
-            generator = outlines.models.openai.OpenAI(
-                client=client, model_name=model_name
-            )
-            chat_prompt = outlines.inputs.Chat(messages)
-            result = generator(
+            generator = OutlinesOpenAI(client=client, model_name=model_name)
+            chat_prompt = outlines_inputs.Chat(messages)
+            generate_kwargs = {}
+            if reasoning_effort is not None:
+                generate_kwargs["reasoning_effort"] = reasoning_effort
+            return generator.generate(
                 chat_prompt,
+                output_type=pydantic_schema,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
+                **generate_kwargs,
             )
-            raw_json = process_json(result)
-            return pydantic_schema(**raw_json)
         else:
+            extra_kwargs = {}
+            if reasoning_effort is not None:
+                extra_kwargs["reasoning_effort"] = reasoning_effort
             result = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
+                **extra_kwargs,
             )
-            return result.choices[0].message.content
+            return {
+                "content": result.choices[0].message.content,
+                "reasoning_content": getattr(
+                    result.choices[0].message, "reasoning_content", None
+                ),
+            }
     except Exception:
         print(
             f"Error during structured generation for prompt: '{prompt[:50]}...': {traceback.format_exc()}"

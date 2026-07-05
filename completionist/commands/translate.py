@@ -1,0 +1,221 @@
+import os
+import click
+from huggingface_hub import get_token
+
+from completionist.processing import process_samples_with_executor
+from completionist.dataset_io import load_and_prepare_dataset, save_and_push_dataset
+from completionist.llm_api import get_completion
+from completionist.utils import read_file_content, handle_error
+
+
+def translate_task_handler(sample, llm_config):
+    """
+    Task handler for translating one or more fields in a single sample.
+    Translates each field independently and returns a dict with source_* and
+    translated_* columns for every field.
+    """
+    result = {}
+    for field in llm_config["input_fields"]:
+        source_text = sample.get(field)
+        if not source_text:
+            continue
+
+        completion = get_completion(
+            prompt=source_text,
+            model_name=llm_config["model_name"],
+            api_url=llm_config["api_url"],
+            system_prompt=llm_config["system_prompt"],
+            hf_api_token=llm_config["hf_api_token"],
+            openai_api_token=llm_config["openai_api_token"],
+            temperature=llm_config["temperature"],
+            top_p=llm_config["top_p"],
+            reasoning_effort=llm_config.get("reasoning_effort"),
+        )
+
+        if completion:
+            result[f"source_{field}"] = source_text
+            result[f"translated_{field}"] = completion["content"]
+        else:
+            return None
+
+    return result if result else None
+
+
+@click.command("translate")
+@click.option(
+    "--dataset-name", required=True, help="The name of the Hugging Face dataset to use."
+)
+@click.option(
+    "--input-field",
+    "input_fields",
+    required=True,
+    multiple=True,
+    help="The name of a field in the input dataset containing text to translate. "
+    "Repeat for multiple fields (e.g. --input-field instruction --input-field output).",
+)
+@click.option(
+    "--source-lang",
+    required=True,
+    help="The source language (e.g. 'English', 'Spanish').",
+)
+@click.option(
+    "--target-lang",
+    required=True,
+    help="The target language to translate into (e.g. 'French', 'German').",
+)
+@click.option(
+    "--output-file",
+    required=True,
+    help="The path to save the translated dataset (e.g., output.parquet).",
+)
+@click.option(
+    "--model-name",
+    default="translategemma-4b-it-GGUF-Q4_K_M",
+    help="The name of the model to use for translation.",
+    show_default=True,
+)
+@click.option(
+    "--api-url",
+    default="http://localhost:11434/v1",
+    help="(Optional) The API endpoint URL for the LLM. Defaults to Ollama's OpenAI-compatible endpoint.",
+)
+@click.option(
+    "--system-prompt",
+    default=None,
+    help="(Optional) A custom system prompt for translation. Cannot be used with --system-prompt-file. "
+    "Defaults to a generated translation prompt using --source-lang and --target-lang.",
+)
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    default=None,
+    help="(Optional) Path to a file containing the system prompt. Cannot be used with --system-prompt.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="(Optional) Limit the number of samples to process.",
+)
+@click.option(
+    "--shuffle", is_flag=True, help="(Optional) Shuffle the dataset before processing."
+)
+@click.option(
+    "--push-to-hub",
+    is_flag=True,
+    help="(Optional) Push the generated dataset to the Hugging Face Hub.",
+)
+@click.option(
+    "--hf-repo-id",
+    default=None,
+    help="The Hugging Face repository ID to push the dataset to. Required if --push-to-hub is used.",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=4,
+    help="(Optional) Number of concurrent requests to make to the API. Defaults to 4.",
+)
+@click.option(
+    "--temperature",
+    type=float,
+    default=0.7,
+    help="Sampling temperature for generation.",
+)
+@click.option(
+    "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
+)
+@click.option(
+    "--reasoning-effort",
+    type=str,
+    default=None,
+    help="(Optional) Reasoning effort level. Set to 'low', 'medium', 'high', or leave unset "
+    "to disable reasoning (faster).",
+)
+def translate_cmd(
+    dataset_name,
+    input_fields,
+    source_lang,
+    target_lang,
+    output_file,
+    model_name,
+    api_url,
+    system_prompt,
+    system_prompt_file,
+    limit,
+    shuffle,
+    push_to_hub,
+    hf_repo_id,
+    workers,
+    temperature,
+    top_p,
+    reasoning_effort,
+):
+    """
+    Translate one or more text fields in a dataset from a source language
+    to a target language using an LLM. Output columns are named
+    source_{field} and translated_{field} for each input field.
+    """
+    if system_prompt and system_prompt_file:
+        raise click.UsageError(
+            "Error: --system-prompt and --system-prompt-file are mutually exclusive."
+        )
+
+    hf_api_token = get_token()
+    openai_api_token = os.environ.get("OPENAI_API_TOKEN", None)
+
+    if push_to_hub and not hf_repo_id:
+        handle_error("Error: --hf-repo-id is required when --push-to-hub is used.")
+
+    system_prompt_content = read_file_content(system_prompt_file) or system_prompt
+    if not system_prompt_content:
+        system_prompt_content = (
+            f"You are a professional translator. "
+            f"Translate the following text from {source_lang} to {target_lang}. "
+            f"Return only the translated text with no additional commentary."
+        )
+
+    # Use the first field for dataset validation / resume checks
+    primary_field = input_fields[0]
+    dataset_to_process, resume_idx, total_samples_in_dataset, existing_translations = (
+        load_and_prepare_dataset(
+            dataset_name=dataset_name,
+            output_file=output_file,
+            prompt_input_field=primary_field,
+            shuffle=shuffle,
+            limit=limit,
+        )
+    )
+
+    llm_config = {
+        "model_name": model_name,
+        "api_url": api_url,
+        "system_prompt": system_prompt_content,
+        "hf_api_token": hf_api_token,
+        "openai_api_token": openai_api_token,
+        "temperature": temperature,
+        "top_p": top_p,
+        "input_fields": list(input_fields),
+        "reasoning_effort": reasoning_effort,
+    }
+
+    fields_label = ", ".join(input_fields)
+    print(
+        f"Translating fields [{fields_label}] from {source_lang} to {target_lang} "
+        f"for {len(dataset_to_process)} samples "
+        f"(out of {total_samples_in_dataset}) with {workers} workers..."
+    )
+
+    new_translations = process_samples_with_executor(
+        dataset_to_process=dataset_to_process,
+        workers=workers,
+        resume_idx=resume_idx,
+        task_handler=translate_task_handler,
+        llm_config=llm_config,
+    )
+
+    if len(new_translations) > 0:
+        all_translations = existing_translations + new_translations
+        save_and_push_dataset(
+            all_translations, output_file, push_to_hub, hf_repo_id, hf_api_token
+        )

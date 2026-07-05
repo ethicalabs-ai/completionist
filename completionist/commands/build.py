@@ -66,7 +66,7 @@ def build_task_handler(topic: str, llm_config: dict):
 @click.command("build")
 @click.option(
     "--schema",
-    default="completionist.commands.default_schema.DefaultSchema",
+    default="completionist.default_schema.DefaultSchema",
     help="Full Python import path to the Pydantic schema class to use for generation.",
     show_default=True,
 )

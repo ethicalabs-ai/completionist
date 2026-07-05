@@ -1,6 +1,5 @@
 import os
 import click
-import re
 from huggingface_hub import get_token
 
 from completionist.processing import process_samples_with_executor
@@ -41,15 +40,10 @@ def complete_task_handler(sample, llm_config):
     )
 
     if completion:
-        reasoning_match = re.search(r"<think>(.*?)</think>", completion, re.DOTALL)
-        reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
-        cleaned_completion = re.sub(
-            r"<think>.*?</think>", "", completion, flags=re.DOTALL
-        ).strip()
         return {
             llm_config["prompt_output_field"]: prompt,
-            llm_config["completion_output_field"]: cleaned_completion,
-            "reasoning": reasoning,
+            llm_config["completion_output_field"]: completion["content"],
+            "reasoning": completion["reasoning_content"] or "",
         }
     return None
 
