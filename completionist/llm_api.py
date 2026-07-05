@@ -20,6 +20,7 @@ def get_completion(
     top_p: float = 0.95,
     pydantic_schema: Optional[BaseModel] = None,
     reasoning_effort: Optional[str] = None,
+    reasoning_format: Optional[str] = None,
 ) -> Union[Dict[str, Optional[str]], BaseModel]:
     """
     Sends a prompt to an LLM API to get a completion.
@@ -86,15 +87,18 @@ def get_completion(
             )
         else:
             extra_kwargs = {}
+            extra_body = {}
             if reasoning_effort is not None:
                 extra_kwargs["reasoning_effort"] = reasoning_effort
+            if reasoning_format is not None:
+                extra_body["reasoning_format"] = reasoning_format
             result = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                extra_body={"reasoning_format": "none"},
+                extra_body=extra_body if extra_body else None,
                 **extra_kwargs,
             )
             return {

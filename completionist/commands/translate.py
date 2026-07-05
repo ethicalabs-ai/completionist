@@ -48,7 +48,9 @@ def _translate_with_cache(source_text, llm_config, cache):
         openai_api_token=llm_config["openai_api_token"],
         temperature=llm_config["temperature"],
         top_p=llm_config["top_p"],
+        max_tokens=llm_config.get("max_tokens", 2048),
         reasoning_effort=llm_config.get("reasoning_effort"),
+        reasoning_format=llm_config.get("reasoning_format"),
     )
 
     if completion and cache:
@@ -162,6 +164,13 @@ def translate_task_handler(sample, llm_config):
     help="Sampling temperature for generation.",
 )
 @click.option(
+    "--max-tokens",
+    type=int,
+    default=4096,
+    help="Maximum tokens to generate (including reasoning). Increase for reasoning models.",
+    show_default=True,
+)
+@click.option(
     "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
 )
 @click.option(
@@ -194,6 +203,7 @@ def translate_cmd(
     hf_repo_id,
     workers,
     temperature,
+    max_tokens,
     top_p,
     reasoning_effort,
     cache_url,
@@ -245,9 +255,11 @@ def translate_cmd(
         "hf_api_token": hf_api_token,
         "openai_api_token": openai_api_token,
         "temperature": temperature,
+        "max_tokens": max_tokens,
         "top_p": top_p,
         "input_fields": list(input_fields),
         "reasoning_effort": reasoning_effort,
+        "reasoning_format": "none",
         "source_lang": source_lang,
         "target_lang": target_lang,
         "cache": cache,
