@@ -94,6 +94,7 @@ def get_completion(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
+                extra_body={"reasoning_format": "none"},
                 **extra_kwargs,
             )
             return {
