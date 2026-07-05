@@ -8,12 +8,18 @@ def process_samples_with_executor(
     resume_idx,
     task_handler,
     llm_config,
+    save_callback=None,
+    save_every=50,
 ):
     """
     Manages the concurrent execution of tasks using a ThreadPoolExecutor.
+
+    If save_callback is provided, it is called every save_every completions
+    with the current completions list so partial results can be persisted.
     """
     completions = []
     futures = []
+    saved_count = 0
 
     # Using a ThreadPoolExecutor for concurrent API calls
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -37,15 +43,14 @@ def process_samples_with_executor(
                 if result:
                     completions.append(result)
 
+                if save_callback and len(completions) - saved_count >= save_every:
+                    save_callback(completions)
+                    saved_count = len(completions)
+
         except KeyboardInterrupt:
-            # When interrupted, cancel pending futures and wait for active ones
-            print(
-                "\nProcess interrupted. Attempting to shut down workers and save progress..."
-            )
-            executor.shutdown(wait=False, cancel_futures=True)
-            print("Executor shutdown initiated.")
+            print("\nProcess interrupted. Saving partial progress before exit...")
+            if save_callback and completions:
+                save_callback(completions)
 
         finally:
-            # The 'with' statement for the executor automatically calls shutdown
-            # at the end of the block, which ensures all resources are cleaned up.
             return completions

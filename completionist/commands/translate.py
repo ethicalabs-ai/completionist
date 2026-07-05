@@ -1,3 +1,4 @@
+import hashlib
 import os
 import click
 from huggingface_hub import get_token
@@ -8,33 +9,71 @@ from completionist.llm_api import get_completion
 from completionist.utils import read_file_content, handle_error
 
 
+def _get_cache_client(cache_url):
+    """Returns a Redis client if cache_url is set, otherwise None."""
+    if not cache_url:
+        return None
+    try:
+        import redis
+    except ImportError:
+        handle_error(
+            "Redis cache requested but 'redis' package is not installed. "
+            "Run: pip install redis"
+        )
+    return redis.from_url(cache_url)
+
+
+def _cache_key(source_text, source_lang, target_lang):
+    """Deterministic cache key for a translation request."""
+    fingerprint = f"{source_text}|{source_lang}|{target_lang}"
+    return f"completionist:translate:{hashlib.sha256(fingerprint.encode()).hexdigest()}"
+
+
+def _translate_with_cache(source_text, llm_config, cache):
+    """Translate source_text, checking/writing the Redis cache if available."""
+    if cache:
+        key = _cache_key(
+            source_text, llm_config["source_lang"], llm_config["target_lang"]
+        )
+        cached = cache.get(key)
+        if cached:
+            return cached
+
+    completion = get_completion(
+        prompt=source_text,
+        model_name=llm_config["model_name"],
+        api_url=llm_config["api_url"],
+        system_prompt=llm_config["system_prompt"],
+        hf_api_token=llm_config["hf_api_token"],
+        openai_api_token=llm_config["openai_api_token"],
+        temperature=llm_config["temperature"],
+        top_p=llm_config["top_p"],
+        reasoning_effort=llm_config.get("reasoning_effort"),
+    )
+
+    if completion and cache:
+        cache.set(key, completion["content"])
+
+    return completion["content"] if completion else None
+
+
 def translate_task_handler(sample, llm_config):
     """
     Task handler for translating one or more fields in a single sample.
     Translates each field independently and returns a dict with source_* and
     translated_* columns for every field.
     """
+    cache = llm_config.get("cache")
     result = {}
     for field in llm_config["input_fields"]:
         source_text = sample.get(field)
         if not source_text:
             continue
 
-        completion = get_completion(
-            prompt=source_text,
-            model_name=llm_config["model_name"],
-            api_url=llm_config["api_url"],
-            system_prompt=llm_config["system_prompt"],
-            hf_api_token=llm_config["hf_api_token"],
-            openai_api_token=llm_config["openai_api_token"],
-            temperature=llm_config["temperature"],
-            top_p=llm_config["top_p"],
-            reasoning_effort=llm_config.get("reasoning_effort"),
-        )
-
-        if completion:
+        translated = _translate_with_cache(source_text, llm_config, cache)
+        if translated:
             result[f"source_{field}"] = source_text
-            result[f"translated_{field}"] = completion["content"]
+            result[f"translated_{field}"] = translated
         else:
             return None
 
@@ -132,6 +171,13 @@ def translate_task_handler(sample, llm_config):
     help="(Optional) Reasoning effort level. Set to 'low', 'medium', 'high', or leave unset "
     "to disable reasoning (faster).",
 )
+@click.option(
+    "--cache-url",
+    type=str,
+    default=None,
+    help="(Optional) Redis URL for translation cache (e.g. redis://localhost:6379). "
+    "Requires a running Redis container and 'pip install redis'.",
+)
 def translate_cmd(
     dataset_name,
     input_fields,
@@ -150,6 +196,7 @@ def translate_cmd(
     temperature,
     top_p,
     reasoning_effort,
+    cache_url,
 ):
     """
     Translate one or more text fields in a dataset from a source language
@@ -187,6 +234,10 @@ def translate_cmd(
         )
     )
 
+    cache = _get_cache_client(cache_url)
+    if cache:
+        print(f"Using translation cache: {cache_url}")
+
     llm_config = {
         "model_name": model_name,
         "api_url": api_url,
@@ -197,6 +248,9 @@ def translate_cmd(
         "top_p": top_p,
         "input_fields": list(input_fields),
         "reasoning_effort": reasoning_effort,
+        "source_lang": source_lang,
+        "target_lang": target_lang,
+        "cache": cache,
     }
 
     fields_label = ", ".join(input_fields)
@@ -206,16 +260,24 @@ def translate_cmd(
         f"(out of {total_samples_in_dataset}) with {workers} workers..."
     )
 
+    def _save_progress(completions):
+        save_and_push_dataset(
+            existing_translations + completions,
+            output_file,
+            push_to_hub,
+            hf_repo_id,
+            hf_api_token,
+        )
+
     new_translations = process_samples_with_executor(
         dataset_to_process=dataset_to_process,
         workers=workers,
         resume_idx=resume_idx,
         task_handler=translate_task_handler,
         llm_config=llm_config,
+        save_callback=_save_progress,
+        save_every=50,
     )
 
     if len(new_translations) > 0:
-        all_translations = existing_translations + new_translations
-        save_and_push_dataset(
-            all_translations, output_file, push_to_hub, hf_repo_id, hf_api_token
-        )
+        _save_progress(new_translations)
