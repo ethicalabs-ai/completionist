@@ -1,6 +1,7 @@
 import click
 
 from completionist.commands.build import build_cmd
+from completionist.commands.chat import chat_cmd
 from completionist.commands.complete import complete_cmd
 
 # from completionist.commands.compose import compose_cmd
@@ -13,6 +14,7 @@ def entry_point():
 
 
 entry_point.add_command(build_cmd)
+entry_point.add_command(chat_cmd)
 entry_point.add_command(complete_cmd)
 # entry_point.add_command(compose_cmd)
 entry_point.add_command(translate_cmd)
