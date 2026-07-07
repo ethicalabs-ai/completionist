@@ -15,6 +15,7 @@ from completionist.llm_api import get_completion
 
 # --- Built-in schema ---
 
+
 class ChatMessage(BaseModel):
     role: str = Field(..., description="Speaker role: 'user' or 'assistant'")
     content: str = Field(..., description="The message content")
@@ -46,6 +47,7 @@ DEFAULT_USER_PROMPT_TEMPLATE = (
 
 # --- Task handler ---
 
+
 def chat_task_handler(topic: str, llm_config: dict):
     """Task handler for generating a single multi-turn conversation for a topic."""
     num_turns = random.randint(llm_config["min_turns"], llm_config["max_turns"])
@@ -66,6 +68,7 @@ def chat_task_handler(topic: str, llm_config: dict):
             pydantic_schema=ChatConversation,
             temperature=llm_config["generation_config"]["temperature"],
             top_p=llm_config["generation_config"]["top_p"],
+            reasoning=llm_config.get("reasoning"),
         )
 
         if result is None:
@@ -74,6 +77,7 @@ def chat_task_handler(topic: str, llm_config: dict):
             return result.model_dump()
         # outlines returned a raw string — attempt JSON parse as fallback
         import json
+
         raw = json.loads(result)
         return ChatConversation(**raw).model_dump()
 
@@ -86,6 +90,7 @@ def chat_task_handler(topic: str, llm_config: dict):
 
 
 # --- CLI command ---
+
 
 @click.command("chat")
 @click.option(
@@ -170,6 +175,12 @@ def chat_task_handler(topic: str, llm_config: dict):
 @click.option(
     "--top-p", type=float, default=0.95, help="Nucleus sampling (top-p) for generation."
 )
+@click.option(
+    "--reasoning",
+    type=str,
+    default=None,
+    help="(Optional) llama.cpp reasoning mode: 'on', 'off', or 'auto'. Leave unset for model default.",
+)
 def chat_cmd(
     topics_file,
     num_conversations,
@@ -186,6 +197,7 @@ def chat_cmd(
     hf_repo_id,
     temperature,
     top_p,
+    reasoning,
 ):
     """
     Generate multi-turn conversation datasets from a list of topics.
@@ -232,6 +244,7 @@ def chat_cmd(
         "generation_config": {"temperature": temperature, "top_p": top_p},
         "hf_api_token": hf_api_token,
         "openai_api_token": openai_api_token,
+        "reasoning": reasoning,
     }
 
     # Build task list: num_conversations per topic

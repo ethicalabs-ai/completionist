@@ -77,6 +77,8 @@ def get_completion(
             generate_kwargs = {}
             if reasoning_effort is not None:
                 generate_kwargs["reasoning_effort"] = reasoning_effort
+            if reasoning is not None:
+                generate_kwargs["extra_body"] = {"reasoning": reasoning}
             return generator.generate(
                 chat_prompt,
                 output_type=pydantic_schema,
