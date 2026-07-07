@@ -68,6 +68,7 @@ def chat_task_handler(topic: str, llm_config: dict):
             pydantic_schema=ChatConversation,
             temperature=llm_config["generation_config"]["temperature"],
             top_p=llm_config["generation_config"]["top_p"],
+            max_tokens=llm_config.get("max_tokens", 2048),
             reasoning=llm_config.get("reasoning"),
         )
 
@@ -181,6 +182,13 @@ def chat_task_handler(topic: str, llm_config: dict):
     default=None,
     help="(Optional) llama.cpp reasoning mode: 'on', 'off', or 'auto'. Leave unset for model default.",
 )
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=4096,
+    help="Maximum tokens per conversation. Increase for longer chats.",
+    show_default=True,
+)
 def chat_cmd(
     topics_file,
     num_conversations,
@@ -198,6 +206,7 @@ def chat_cmd(
     temperature,
     top_p,
     reasoning,
+    max_tokens,
 ):
     """
     Generate multi-turn conversation datasets from a list of topics.
@@ -245,6 +254,7 @@ def chat_cmd(
         "hf_api_token": hf_api_token,
         "openai_api_token": openai_api_token,
         "reasoning": reasoning,
+        "max_tokens": max_tokens,
     }
 
     # Build task list: num_conversations per topic
