@@ -69,7 +69,11 @@ def translate_task_handler(sample, llm_config):
     result = {}
     for field in llm_config["input_fields"]:
         source_text = sample.get(field)
+        if source_text is None:
+            continue
         if not source_text:
+            result[f"source_{field}"] = source_text or ""
+            result[f"translated_{field}"] = ""
             continue
 
         translated = _translate_with_cache(source_text, llm_config, cache)
