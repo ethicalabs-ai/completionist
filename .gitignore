@@ -12,3 +12,10 @@ wheels/
 # Local scripts and generated data
 scratch/
 datasets/
+
+# Generated dataset outputs (batch runs, not for distribution)
+*.jsonl
+docs/examples/*/
+
+# Local assistant state
+.qwen/

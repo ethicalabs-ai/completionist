@@ -14,6 +14,9 @@ def process_samples_with_executor(
     """
     Manages the concurrent execution of tasks using a ThreadPoolExecutor.
 
+    Results are returned in submission order, so callers can resume by index
+    regardless of worker count.
+
     If save_callback is provided, it is called every save_every completions
     with the current completions list so partial results can be persisted.
 
@@ -36,7 +39,7 @@ def process_samples_with_executor(
             futures.append(future)
 
         for future in tqdm(
-            concurrent.futures.as_completed(futures),
+            futures,
             total=len(futures),
             initial=resume_idx,
             desc="Generating completions",

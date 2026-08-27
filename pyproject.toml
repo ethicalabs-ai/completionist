@@ -1,6 +1,6 @@
 [project]
 name = "completionist"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI tool for batch LLM operations on datasets — translate, complete, and build structured synthetic datasets"
 readme = "README.md"
 requires-python = ">=3.11.11"
@@ -53,6 +53,12 @@ convention = "google"  # Accepts: "google", "numpy", or "pep257".
 [build-system]
 requires = ["setuptools>=61.0", "wheel", "build"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
