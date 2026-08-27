@@ -5,6 +5,8 @@ from completionist.commands.chat import chat_cmd
 from completionist.commands.complete import complete_cmd
 
 # from completionist.commands.compose import compose_cmd
+from completionist.commands.inspect import inspect_cmd
+from completionist.commands.topics import topics_cmd
 from completionist.commands.translate import translate_cmd
 
 
@@ -17,4 +19,6 @@ entry_point.add_command(build_cmd)
 entry_point.add_command(chat_cmd)
 entry_point.add_command(complete_cmd)
 # entry_point.add_command(compose_cmd)
+entry_point.add_command(inspect_cmd)
+entry_point.add_command(topics_cmd)
 entry_point.add_command(translate_cmd)

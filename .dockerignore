@@ -1,0 +1,12 @@
+.git
+.github
+.qwen
+.venv
+__pycache__
+*.py[co]
+.pytest_cache
+.ruff_cache
+scratch/
+datasets/
+*.jsonl
+docs/examples/*/

@@ -1,11 +1,14 @@
 import os
 import sys
+import json
 import random
 import traceback
+import time
 
 import click
 from pydantic import BaseModel, Field
 from huggingface_hub import get_token
+from datasets import Dataset
 
 from completionist.processing import process_samples_with_executor
 from completionist.dataset_io import save_and_push_dataset
@@ -33,8 +36,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "Generate a realistic, engaging multi-turn conversation on the given topic. "
     "The conversation must have exactly {num_turns} messages, alternating between "
     "'user' and 'assistant' roles, starting with 'user'. "
-    "Vary the tone and depth — some turns short and casual, others longer and thoughtful. "
-    "Return the result as a JSON object matching the schema."
+    "Make it feel like two interesting people talking, not a Q&A or a lecture.\n"
+    "- The assistant should occasionally disagree, push back, ask a question, or admit "
+    "they don't know. Avoid wrapping up neatly — real conversations are messy.\n"
+    "- Vary register: humor, frustration, curiosity, doubt. Not every turn should be "
+    "polished and academic.\n"
+    "- The user should have their own perspective, not just ask setup questions. "
+    "Let them challenge the assistant, change their mind, or go off on a tangent.\n"
+    "- Return the result as a JSON object matching the schema."
 )
 
 DEFAULT_USER_PROMPT_TEMPLATE = (
@@ -50,44 +59,56 @@ DEFAULT_USER_PROMPT_TEMPLATE = (
 
 def chat_task_handler(topic: str, llm_config: dict):
     """Task handler for generating a single multi-turn conversation for a topic."""
-    num_turns = random.randint(llm_config["min_turns"], llm_config["max_turns"])
-
-    user_prompt = llm_config["user_prompt_template"].format(
-        topic=topic, num_turns=num_turns
+    num_turns = random.randrange(
+        llm_config["min_turns"], llm_config["max_turns"] + 1, 2
     )
-    system_prompt = llm_config["system_prompt"].format(num_turns=num_turns)
 
-    try:
-        result = get_completion(
-            prompt=user_prompt,
-            model_name=llm_config["model_name"],
-            api_url=llm_config["api_url"],
-            system_prompt=system_prompt,
-            hf_api_token=llm_config["hf_api_token"],
-            openai_api_token=llm_config["openai_api_token"],
-            pydantic_schema=ChatConversation,
-            temperature=llm_config["generation_config"]["temperature"],
-            top_p=llm_config["generation_config"]["top_p"],
-            max_tokens=llm_config.get("max_tokens", 2048),
-            reasoning=llm_config.get("reasoning"),
-        )
+    user_prompt = (
+        llm_config["user_prompt_template"]
+        .replace("{topic}", topic)
+        .replace("{num_turns}", str(num_turns))
+    )
+    system_prompt = llm_config["system_prompt"].replace("{num_turns}", str(num_turns))
 
-        if result is None:
-            return None
-        if isinstance(result, ChatConversation):
-            return result.model_dump()
-        # outlines returned a raw string — attempt JSON parse as fallback
-        import json
+    max_retries = llm_config.get("retries", 3)
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = get_completion(
+                prompt=user_prompt,
+                model_name=llm_config["model_name"],
+                api_url=llm_config["api_url"],
+                system_prompt=system_prompt,
+                hf_api_token=llm_config["hf_api_token"],
+                openai_api_token=llm_config["openai_api_token"],
+                pydantic_schema=ChatConversation,
+                temperature=llm_config["generation_config"]["temperature"],
+                top_p=llm_config["generation_config"]["top_p"],
+                max_tokens=llm_config.get("max_tokens", 2048),
+                reasoning=llm_config.get("reasoning"),
+            )
 
-        raw = json.loads(result)
-        return ChatConversation(**raw).model_dump()
+            if result is None:
+                raise RuntimeError("completion returned no result")
+            if isinstance(result, ChatConversation):
+                return result.model_dump()
+            # outlines returned a raw string — attempt JSON parse as fallback
+            return ChatConversation(**json.loads(result)).model_dump()
 
-    except Exception:
-        print(
-            f"\nWarning: Failed to generate conversation for topic '{topic}'. "
-            f"Reason: {traceback.format_exc()}"
-        )
-        return None
+        except Exception as exc:
+            if attempt >= max_retries:
+                print(
+                    f"\nWarning: Failed to generate conversation for topic '{topic}' "
+                    f"after {max_retries} attempts. Reason: {traceback.format_exc()}"
+                )
+                return None
+            delay = 2 ** (attempt - 1)
+            print(
+                f"  Retrying topic '{topic}' (attempt {attempt}/{max_retries} failed): "
+                f"{exc} — waiting {delay}s"
+            )
+            time.sleep(delay)
+
+    return None
 
 
 # --- CLI command ---
@@ -109,15 +130,15 @@ def chat_task_handler(topic: str, llm_config: dict):
 @click.option(
     "--min-turns",
     type=int,
-    default=3,
-    help="Minimum number of messages per conversation.",
+    default=4,
+    help="Minimum number of messages per conversation. Must be even.",
     show_default=True,
 )
 @click.option(
     "--max-turns",
     type=int,
     default=6,
-    help="Maximum number of messages per conversation.",
+    help="Maximum number of messages per conversation. Must be even.",
     show_default=True,
 )
 @click.option(
@@ -189,6 +210,13 @@ def chat_task_handler(topic: str, llm_config: dict):
     help="Maximum tokens per conversation. Increase for longer chats.",
     show_default=True,
 )
+@click.option(
+    "--retries",
+    type=int,
+    default=3,
+    help="Maximum attempts per conversation on failure.",
+    show_default=True,
+)
 def chat_cmd(
     topics_file,
     num_conversations,
@@ -207,6 +235,7 @@ def chat_cmd(
     top_p,
     reasoning,
     max_tokens,
+    retries,
 ):
     """
     Generate multi-turn conversation datasets from a list of topics.
@@ -219,8 +248,16 @@ def chat_cmd(
         print("Error: --hf-repo-id is required when --push-to-hub is used.")
         sys.exit(1)
 
+    if min_turns % 2 != 0 or max_turns % 2 != 0:
+        print("Error: --min-turns and --max-turns must be even numbers.")
+        sys.exit(1)
+
     if min_turns > max_turns:
         print("Error: --min-turns cannot be greater than --max-turns.")
+        sys.exit(1)
+
+    if retries < 1:
+        print("Error: --retries must be at least 1.")
         sys.exit(1)
 
     # Resolve prompts: file > inline > built-in default
@@ -255,6 +292,7 @@ def chat_cmd(
         "openai_api_token": openai_api_token,
         "reasoning": reasoning,
         "max_tokens": max_tokens,
+        "retries": retries,
     }
 
     # Build task list: num_conversations per topic
@@ -262,21 +300,55 @@ def chat_cmd(
     for topic in topics:
         tasks.extend([topic] * num_conversations)
 
+    # Resume from an existing output file if present.
+    existing = []
+    resume_idx = 0
+    if os.path.exists(output_file):
+        try:
+            if os.path.splitext(output_file)[1].lower() == ".jsonl":
+                existing = Dataset.from_json(output_file).to_list()
+            else:
+                existing = Dataset.from_parquet(output_file).to_list()
+            resume_idx = len(existing)
+            print(
+                f"Resuming from {output_file}: {resume_idx} conversations already done."
+            )
+        except Exception as e:
+            print(f"Could not load {output_file} ({e}). Starting fresh.")
+
+    remaining = tasks[resume_idx:]
+
+    if not remaining:
+        print(f"All {len(tasks)} conversations already present in {output_file}.")
+        return
+
     print(
-        f"Generating {len(tasks)} conversations ({num_conversations} per topic) "
+        f"Generating {len(remaining)} conversations ({num_conversations} per topic) "
         f"across {len(topics)} topics with {workers} workers..."
     )
 
+    def save_progress(completions):
+        # Checkpoint partial results locally so interrupted runs keep their output.
+        save_and_push_dataset(
+            completions=existing + completions,
+            output_file=output_file,
+            push_to_hub=False,
+            hf_repo_id=None,
+            hf_api_token=None,
+        )
+
     generated = process_samples_with_executor(
-        dataset_to_process=tasks,
+        dataset_to_process=remaining,
         workers=workers,
-        resume_idx=0,
+        resume_idx=resume_idx,
         task_handler=chat_task_handler,
         llm_config=llm_config,
+        save_callback=save_progress,
+        save_every=25,
     )
 
     save_and_push_dataset(
-        completions=generated,
+        completions=existing + generated,
         output_file=output_file,
         push_to_hub=push_to_hub,
         hf_repo_id=hf_repo_id,
